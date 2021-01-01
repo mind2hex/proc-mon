@@ -63,20 +63,24 @@ help(){
     echo "     -l,--log <file>         : Save log of processes to a file        "
     echo "     --exclude-sys           : Exclude main system process            "
     echo "     --exclude-proc <name>   : Exclude process that match with <name> "
-    echo "     --usage                 : See usage message                      "
+    echo "     -u,--usage                 : See usage message                      "
     echo "     -h,--help               : See this help message                  "
     exit 0
 }
 
 usage(){
-    clear
-    banner
-    echo  -e "====================================================="
+    echo  -e "================================================================"
     echo "[!] Usage Examples:"
-    echo "    - Show only specified user "
-    echo "$ ./proc-mon.sh -u root"
-    echo "    - Specify logfile"
-    echo "$ ./proc-mon.sh -l mylogfile"
+    echo "- Show only specified user "
+    echo "    $ ./proc-mon.sh -u root # root is the user specified by user"
+    echo ""
+    echo "- Specify logfile"
+    echo "    $ ./proc-mon.sh -l mylogfile   # mylogfile is the log file specified by user"
+    echo ""
+    echo "- Specify sleep time between updates"
+    echo "    $ ./proc-mon.sh -i 1s # sleep time can be 1s, 1m, 1h, 1d"
+    echo  -e "================================================================"    
+    exit
 }
 
 ERROR(){
@@ -98,6 +102,7 @@ argument_parser(){
 	    -l|--log)  LOGFILE=$2 && shift && shift;;
 	    --exclude-sys) ExcludeSys="TRUE" && shift;;
 	    --exclude-proc) ExcludeProcess="$2" && shift && shift;;
+	    -u|--usage) usage ;;
 	    -h|--help) help ;;
 	    *) ERROR "argumentParser" "Wrong argument $key" ;;
         esac 
@@ -204,9 +209,9 @@ argument_processor(){
     argument_processor_print_header
     
     while true;do
-	argument_processor_update_info
-	argument_processor_update_arrays  # $userArr $pidArr $cmdArr
-	argument_processor_update_temporal_file
+	argument_processor_update_info 
+	argument_processor_update_arrays   # $userArr $pidArr $cmdArr
+	argument_processor_update_temporal_file &
 	sleep $INTERVAL
     done
 }
@@ -239,11 +244,18 @@ argument_processor_print_header(){
 
 argument_processor_file_generator(){
     ## Generating random temporary file
-    TempFile=$(echo $RANDOM | base64 | tr -d "=") # TempFile is used in other functions
+    TempFile=$(mktemp file.XXXX)
+    #TempFile=$(echo $RANDOM | base64 | tr -d "=") # TempFile is used in other functions
     touch $TempFile
+
     if [[ "$1" != "FALSE" ]];then
 	## linking tempfile to logfile
-	ln $TempFile $1
+	ln -f $TempFile $1
+
+	## checking if logfile and temp file are in the same partition.
+	if [[ $? -ne 0 ]];then
+	    ERROR "argument_processor_file_generator" "Impossible to create hard links between differents partitions"
+	fi
     fi
 }
 
@@ -261,12 +273,11 @@ argument_processor_update_info(){
 	info=$(echo "$info" | grep -w "$PID")
     fi
 
-    ## Excluding above info gathering
+    ## Excluding last command 'info=$(ps)... PID'
     info=`echo "$info" | grep --invert-match "ps -ef h"`
 
     ## Excluding shell ID
     info=$(echo "$info" | grep --invert-match "$$")
-    
 }
 
 argument_processor_update_arrays(){
