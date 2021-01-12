@@ -57,13 +57,15 @@ banner(){
 help(){
     echo "usage: process-monitor.sh [options] "
     echo "Options:                            "
-    echo "     -i,--interval <n>       : Specify refresh interval in seconds    "
+    echo "     -i,--interval <n>       : Specify refresh interval. [WARNING]    "
+    echo "                               Low interval values may use a lot of resources"
     echo "     -u,--user <user>        : Specify filter: user                   "
     echo "     -p,--pid <pid>          : Specify filter: process id             "
     echo "     -l,--log <file>         : Save log of processes to a file        "
     echo "     --exclude-sys           : Exclude main system process            "
     echo "     --exclude-proc <name>   : Exclude process that match with <name> "
-    echo "     -u,--usage                 : See usage message                      "
+    echo "     --match <keyword>       : Highlight keyword if found in output   "
+    echo "     -u,--usage              : See usage message                      "
     echo "     -h,--help               : See this help message                  "
     exit 0
 }
@@ -102,6 +104,7 @@ argument_parser(){
 	    -l|--log)  LOGFILE=$2 && shift && shift;;
 	    --exclude-sys) ExcludeSys="TRUE" && shift;;
 	    --exclude-proc) ExcludeProcess="$2" && shift && shift;;
+	    --match) Match="$2" && shift && shift;;
 	    -u|--usage) usage ;;
 	    -h|--help) help ;;
 	    *) ERROR "argumentParser" "Wrong argument $key" ;;
@@ -109,8 +112,8 @@ argument_parser(){
     done
     
     ## Setting up default variables
-    ${INTERVAL:="5"} &>/dev/null
-    INTERVAL=`echo $INTERVAL | grep -o -E "[0-9]{1,}" | tr -d "\n"`
+    ${INTERVAL:="1"} &>/dev/null
+    INTERVAL=`echo $INTERVAL | grep -o -E "[0-9\.]{1,}" | tr -d "\n"`
     
     ${USERNAME:="ALL"} &>/dev/null
 
@@ -120,11 +123,13 @@ argument_parser(){
 	PID=`echo $PID | grep -o -E "[0-9]{1,}" | tr -d "\n"`
     fi
     
-    ${LOGFILE:="FALSE"} &>/dev/null
+    echo ${LOGFILE:="FALSE"} &>/dev/null
     
-    ${ExcludeSys:="FALSE"} &>/dev/null
+    echo ${ExcludeSys:="FALSE"} &>/dev/null
 
-    ${EcludeProcess:="FALSE"} &>/dev/null
+    echo ${ExcludeProcess:="FALSE"} &>/dev/null
+    
+    echo ${Match:="FALSE"} &>/dev/null
 }
 
 #############################
@@ -151,9 +156,9 @@ argument_checker(){
 }
 
 argument_checker_interval(){
-    ## interval can't be zero
-    if [[ $1 -le 0 ]];then
-	ERROR "argument_checker_interval" "Interval number can't be zero"
+    ## Checking decimal points
+    if [[ $( echo "$1" | grep -c "\." ) -gt 1 ]];then
+	ERROR "argument_checker_interval" "Interval number has more than one decimal point"
     fi
 
     ## Code goes here if there is more checks
@@ -212,7 +217,7 @@ argument_processor(){
 	argument_processor_update_info 
 	argument_processor_update_arrays   # $userArr $pidArr $cmdArr
 	argument_processor_update_temporal_file &
-	sleep $INTERVAL
+	sleep ${INTERVAL}
     done
 }
 
@@ -250,10 +255,11 @@ argument_processor_file_generator(){
 
     if [[ "$1" != "FALSE" ]];then
 	## linking tempfile to logfile
-	ln -f $TempFile $1
+	ln -f $TempFile $1 2>/dev/null
 
 	## checking if logfile and temp file are in the same partition.
 	if [[ $? -ne 0 ]];then
+	    rm $TempFile
 	    ERROR "argument_processor_file_generator" "Impossible to create hard links between differents partitions"
 	fi
     fi
@@ -293,8 +299,16 @@ argument_processor_update_temporal_file(){
     for i in $(seq 0 $((${#userArr[@]} - 1)));do
 	line=$(printf "\e[1m%-8s  \e[1;31m %-8s   \e[0m%-50s" "${userArr[$i]}" "${pidArr[$i]}" "${cmdArr[$i]:0:50}")
 	if [[ -z $(cat "$TempFile" | grep -w "${pidArr[$i]}") ]];then
-	    echo "$line" >> $TempFile
-	    echo "$line"
+
+	    ## Checking for Match var
+	    if [[ $(echo "$line" | grep --ignore-case -o "${Match}" | head -n 1) ]];then
+		## High light matches using grep... Pretty cool right?
+		echo "${line}" | grep --color "${Match}" >> $TempFile
+		echo "${line}" | grep --color "${Match}"
+	    else
+		echo "$line" >> $TempFile
+		echo "$line"
+	    fi
 	fi
     done
 }
@@ -309,3 +323,7 @@ argument_parser "$@"
 argument_checker "$INTERVAL" "$USERNAME" "$PID" "$LOGFILE"
 argument_processor "$INTERVAL" "$USERNAME" "$PID" "$LOGFILE" "$ExcludeSys" "$ExcludeProcess"
 return 0
+
+# fix ${string:="test"} execution problem
+# develop Match utility to allow more than one matching keyword
+# delete points that are replacing spaces in the output lines
