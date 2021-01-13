@@ -23,14 +23,11 @@
 ## You should have received a copy of the GNU General Public License
 ## along with this program.  If not, see <http://www.gnu.org/licenses/>
 
-
-
 #############################
 ##     CONSTANTS           ##
 #############################    
 
 VERSION="[v1.00]"
-
 
 #############################
 ##   BASIC FUNCTIONS       ##
@@ -72,17 +69,20 @@ help(){
 
 usage(){
     echo  -e "================================================================"
-    echo "[!] Usage Examples:"
-    echo "- Show only specified user "
-    echo "    $ ./proc-mon.sh -u root # root is the user specified by user"
-    echo ""
-    echo "- Specify logfile"
-    echo "    $ ./proc-mon.sh -l mylogfile   # mylogfile is the log file specified by user"
-    echo ""
-    echo "- Specify sleep time between updates"
-    echo "    $ ./proc-mon.sh -i 1s # sleep time can be 1s, 1m, 1h, 1d"
+    echo " INFORMATION:                                                       "
+    echo "[!] When the program is executing, a temporal file is generated     "
+    echo "    using the format file.XXX                                       "
+    echo "[!] Using low interval values may use a lot of cpu                  "
+    echo  -e "================================================================"
+    echo "[!] Usage Examples:                                                 "
+    echo "[1] Show only specified user                                        "
+    echo "        $ ./proc-mon.sh -u root                                     "
+    echo "[2] Specify logfile                                                 "
+    echo "        $ ./proc-mon.sh -l mylogfile                                "
+    echo "[3] Specify refresh interval                                        "
+    echo "        $ ./proc-mon.sh -i 0.1                                      "
     echo  -e "================================================================"    
-    exit
+    exit 0
 }
 
 ERROR(){
@@ -96,26 +96,27 @@ ERROR(){
 argument_parser(){
     ## This loop handle CLI arguments
     while [[ $# -gt 0 ]];do
-	key=$1
-	case $key in
+	case "$1" in
 	    -i|--interval) INTERVAL=$2 && shift && shift ;;
-	    -u|--user) USERNAME=$2 && shift && shift ;;
+	    -u|--user) USERSPEC=$2 && shift && shift ;;
 	    -p|--pid)  PID=$2 && shift && shift ;;
 	    -l|--log)  LOGFILE=$2 && shift && shift;;
 	    --exclude-sys) ExcludeSys="TRUE" && shift;;
 	    --exclude-proc) ExcludeProcess="$2" && shift && shift;;
 	    --match) Match="$2" && shift && shift;;
-	    -u|--usage) usage ;;
+	    --usage) usage ;;
 	    -h|--help) help ;;
-	    *) ERROR "argumentParser" "Wrong argument $key" ;;
+	    *) ERROR "argument_parser" "Wrong argument [$key]" ;;
         esac 
     done
+
+
     
     ## Setting up default variables
-    ${INTERVAL:="1"} &>/dev/null
+    echo ${INTERVAL:="1"} &>/dev/null
     INTERVAL=`echo $INTERVAL | grep -o -E "[0-9\.]{1,}" | tr -d "\n"`
     
-    ${USERNAME:="ALL"} &>/dev/null
+    ${USERSPEC:="ALL"} &>/dev/null
 
     if [[ -z $PID ]];then
 	PID="ALL"
@@ -138,14 +139,14 @@ argument_parser(){
 
 argument_checker(){
     ## $1 = INTERVAL
-    ## $2 = USERNAME
+    ## $2 = USERSPEC
     ## $3 = PID
     ## $4 = LOGFILE
     
     ## interval number check
     argument_checker_interval "$1"
     
-    ## USERNAME check
+    ## USERSPEC check
     argument_checker_user_check "$2"
 
     ## PID check
@@ -197,7 +198,7 @@ argument_checker_file_check(){
 
 argument_processor(){
     ## $1 = INTERVAL
-    ## $2 = USERNAME
+    ## $2 = USERSPEC
     ## $3 = PID
     ## $4 = LOGFILE
     ## $5 = ExcludeSys
@@ -216,14 +217,14 @@ argument_processor(){
     while true;do
 	argument_processor_update_info 
 	argument_processor_update_arrays   # $userArr $pidArr $cmdArr
-	argument_processor_update_temporal_file &
+	argument_processor_update_temporal_file
 	sleep ${INTERVAL}
     done
 }
 
 argument_processor_print_configuration(){
     #### FILTERS ######## CONFIGURATIONS #####
-    # $2 = $USERNAME   | $1 = $INTERVAL
+    # $2 = $USERSPEC   | $1 = $INTERVAL
     # $3 = $PID        | $4 = $LOGFILE
     # $5 = $ExcludeSys |
     # $6 = $ExcludePr..|
@@ -235,13 +236,13 @@ argument_processor_print_configuration(){
     printf "[4] exclude-pro: %-8s # %-8s\n"               "${6:0:8}"
     printf "%-25s # %-25s\n" "=========================" "========================="
     echo "[!] Press CTRL-C to stop the program "
-    sleep 1s
+    sleep 4s
 }
 
 argument_processor_print_header(){
     clear
     printf "==========================================================\n"
-    printf "%-8s   %-8s   %-50s\n" "USERNAME" "PID" "CMD"
+    printf "%-8s   %-8s   %-50s\n" "USERSPEC" "PID" "CMD"
     printf "==========================================================\n"
     sleep 1s
     
@@ -269,9 +270,9 @@ argument_processor_update_info(){
     ## info gathering
     info=$(ps -ef h)  # variable used in other functions
     
-    ## USERNAME FILTER
-    if [[ $USERNAME != "ALL" ]];then
-	info=$(echo "$info" | grep -w "${USERNAME:0:7}")
+    ## USERSPEC FILTER
+    if [[ $USERSPEC != "ALL" ]];then
+	info=$(echo "$info" | grep -w "${USERSPEC:0:7}")
     fi
 
     ## PID FILTER
@@ -288,9 +289,9 @@ argument_processor_update_info(){
 
 argument_processor_update_arrays(){
     ## Separating data into arrays
-    userArr=(`echo "$info" | grep -o -E "^.{1,8}"`)
-    pidArr=(`echo "$info"  | grep -o -E "^.{1,8}[\ ]*[0-9]{1,7}" | grep -o -E " [0-9]{1,7}" | grep -o "[0-9]*"`)
-    cmdArr=(`echo "$info" | grep -o -E " [0-9]\:[0-9]{2}.*" | tr " " "."`)
+    userArr=($(echo "$info" | grep -o -E "^.{1,8}"))
+    pidArr=($(echo "$info"  | grep -o -E "^.{1,8}[\ ]*[0-9]{1,7}" | grep -o -E " [0-9]{1,7}" | grep -o "[0-9]*"))
+    cmdArr=($(echo "$info" | grep -o -E " [0-9]\:[0-9]{2}.*" | tr " " "."))
 
     ## if i find a better way to separate by arrays then code goes here
 }
@@ -320,10 +321,11 @@ argument_processor_update_temporal_file(){
 
 banner
 argument_parser "$@"
-argument_checker "$INTERVAL" "$USERNAME" "$PID" "$LOGFILE"
-argument_processor "$INTERVAL" "$USERNAME" "$PID" "$LOGFILE" "$ExcludeSys" "$ExcludeProcess"
-return 0
+argument_checker "$INTERVAL" "$USERSPEC" "$PID" "$LOGFILE"
+argument_processor "$INTERVAL" "$USERSPEC" "$PID" "$LOGFILE" "$ExcludeSys" "$ExcludeProcess"
+exit 0
 
 # fix ${string:="test"} execution problem
 # develop Match utility to allow more than one matching keyword
 # delete points that are replacing spaces in the output lines
+# Sometimes a bug doesn't let the program show the cmd of some processes i don't know why
